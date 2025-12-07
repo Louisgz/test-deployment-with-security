@@ -13,6 +13,7 @@ jobs:
     permissions:
       contents: write # IMPORTANT : Nécessaire pour pouvoir pusher le revert
       pull-requests: read
+      actions: write # Permet de gérer les runs, parfois nécessaire, mais 'workflows' n'existe pas. On essaie sans ou avec actions.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
