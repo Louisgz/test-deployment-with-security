@@ -16,17 +16,40 @@ jobs:
         run: |
           echo "🔎 Vérification des approbations pour la PR #${{ github.event.pull_request.number }}..."
 
-          # Récupère le nombre de reviews avec l'état 'APPROVED'
-          COUNT=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
-            --jq '[.[] | select(.state=="APPROVED")] | length')
+          # Liste des admins
+          AUTHORIZED_USERS=("Louisgz" "DonGuych" "raph-asclepia")
 
-          echo "Nombre d'approbations trouvées : $COUNT"
+          # Récupère toutes les reviews
+          REVIEWS_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews)
 
-          if [ "$COUNT" = "0" ]; then
-            echo "❌ ECHEC : Cette Pull Request n'a pas encore été approuvée par un reviewer."
-            echo "⚠️  Merci d'attendre une validation avant de merger."
-            exit 1
-          else
-            echo "✅ SUCCÈS : La PR a été approuvée ($COUNT approbation(s))."
+          IS_VALIDATED="false"
+
+          # 1. Vérif Approved
+          APPROVED_COUNT=$(echo "$REVIEWS_JSON" | jq '[.[] | select(.state=="APPROVED")] | length')
+          if [ "$APPROVED_COUNT" -gt "0" ]; then
+            echo "✅ Trouvé $APPROVED_COUNT review(s) APPROVED."
+            IS_VALIDATED="true"
+          fi
+
+          # 2. Vérif Commentaire Admin
+          if [ "$IS_VALIDATED" == "false" ]; then
+            for admin in "${AUTHORIZED_USERS[@]}"; do
+              COMMENT_COUNT=$(echo "$REVIEWS_JSON" | jq --arg user "$admin" '[.[] | select(.state=="COMMENTED" and .user.login==$user)] | length')
+              if [ "$COMMENT_COUNT" -gt "0" ]; then
+                echo "✅ Trouvé commentaire validant de l'admin $admin."
+                IS_VALIDATED="true"
+                break
+              fi
+            done
+          fi
+
+          if [ "$IS_VALIDATED" == "true" ]; then
+            echo "✅ SUCCÈS : La PR est considérée comme validée."
             exit 0
+          else
+            echo "❌ ECHEC : La PR n'est pas validée."
+            echo "Conditions requises :"
+            echo "  - Soit une review 'APPROVED' (par n'importe qui)"
+            echo "  - Soit un commentaire ('COMMENTED') de : ${AUTHORIZED_USERS[*]}"
+            exit 1
           fi

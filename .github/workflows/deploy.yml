@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: write # IMPORTANT : Nécessaire pour pouvoir pusher le revert
       pull-requests: read
-      actions: write # Permet de gérer les runs, parfois nécessaire, mais 'workflows' n'existe pas. On essaie sans ou avec actions.
+      actions: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,36 +25,66 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Vérification de l'utilisateur
+          # 1. Vérification de l'utilisateur qui merge
           AUTHORIZED_USERS=("Louisgz" "DonGuych" "raph-asclepia")
           MERGER="${{ github.event.pull_request.merged_by.login }}"
-          IS_AUTHORIZED="false"
+          IS_AUTHORIZED_MERGER="false"
 
           for user in "${AUTHORIZED_USERS[@]}"; do
             if [ "$user" == "$MERGER" ]; then
-              IS_AUTHORIZED="true"
+              IS_AUTHORIZED_MERGER="true"
               break
             fi
           done
 
           echo "Merger: $MERGER"
-          echo "Authorized: $IS_AUTHORIZED"
+          echo "Authorized Merger: $IS_AUTHORIZED_MERGER"
 
-          # 2. Vérification des Reviews
-          REVIEW_COUNT=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
-            --jq '[.[] | select(.state=="APPROVED")] | length')
+          # 2. Vérification des Reviews (Approve OU Commentaire d'un Admin)
+          echo "Vérification des reviews..."
 
-          echo "Approved Reviews: $REVIEW_COUNT"
+          # Récupère toutes les reviews en JSON
+          REVIEWS_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews)
 
-          # 3. Décision
-          if [ "$IS_AUTHORIZED" == "false" ] || [ "$REVIEW_COUNT" == "0" ]; then
+          # Logique de validation complexe en bash/jq
+          # On cherche s'il existe AU MOINS UNE review qui est :
+          # - Soit APPROVED (peu importe qui)
+          # - Soit COMMENTED par un des admins (Louisgz, DonGuych, raph-asclepia)
+
+          IS_VALIDATED="false"
+
+          # Vérif Approved
+          APPROVED_COUNT=$(echo "$REVIEWS_JSON" | jq '[.[] | select(.state=="APPROVED")] | length')
+          if [ "$APPROVED_COUNT" -gt "0" ]; then
+            echo "✅ Trouvé $APPROVED_COUNT review(s) APPROVED."
+            IS_VALIDATED="true"
+          fi
+
+          # Vérif Commentaire Admin (si pas déjà validé)
+          if [ "$IS_VALIDATED" == "false" ]; then
+            for admin in "${AUTHORIZED_USERS[@]}"; do
+              COMMENT_COUNT=$(echo "$REVIEWS_JSON" | jq --arg user "$admin" '[.[] | select(.state=="COMMENTED" and .user.login==$user)] | length')
+              if [ "$COMMENT_COUNT" -gt "0" ]; then
+                echo "✅ Trouvé commentaire validant de l'admin $admin."
+                IS_VALIDATED="true"
+                break
+              fi
+            done
+          fi
+
+          if [ "$IS_VALIDATED" == "false" ]; then
+             echo "❌ Aucune validation trouvée (Ni APPROVED, ni commentaire Admin)."
+          fi
+
+          # 3. Décision Finale
+          if [ "$IS_AUTHORIZED_MERGER" == "false" ] || [ "$IS_VALIDATED" == "false" ]; then
             echo "❌ Conditions NON remplies."
-            if [ "$IS_AUTHORIZED" == "false" ]; then echo "- Utilisateur $MERGER non autorisé."; fi
-            if [ "$REVIEW_COUNT" == "0" ]; then echo "- Aucune approbation (review)."; fi
+            if [ "$IS_AUTHORIZED_MERGER" == "false" ]; then echo "- Utilisateur $MERGER non autorisé à merger."; fi
+            if [ "$IS_VALIDATED" == "false" ]; then echo "- Pas de validation (Review Approve ou Commentaire Admin)."; fi
             
             echo "action=revert" >> $GITHUB_OUTPUT
           else
-            echo "✅ Conditions remplies."
+            echo "✅ Conditions remplies (Merger autorisé + Validation présente)."
             echo "action=deploy" >> $GITHUB_OUTPUT
           fi
 
