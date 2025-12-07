@@ -18,6 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.ACTION_TOKEN }} # Utilise le PAT pour avoir le droit de modifier les workflows
           fetch-depth: 0 # Nécessaire pour avoir l'historique git pour le revert
 
       - name: Verify Conditions
