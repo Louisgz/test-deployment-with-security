@@ -1,0 +1,57 @@
+name: Secure Deployment
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  deploy-check:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify Merger Identity
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const authorizedUsers = ['Louisgz', 'DonGuych', 'raph-asclepia'];
+            const merger = context.payload.pull_request.merged_by.login;
+
+            console.log(`ℹ️ Pull Request mergée par : ${merger}`);
+
+            if (!authorizedUsers.includes(merger)) {
+              core.setFailed(`⛔ DÉPLOIEMENT REFUSÉ : L'utilisateur ${merger} n'est pas autorisé à déployer. Liste autorisée : ${authorizedUsers.join(', ')}`);
+            } else {
+              console.log("✅ Utilisateur autorisé.");
+            }
+
+      - name: Check Reviews (Approvals)
+        id: reviews
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Utilisation de gh cli pour compter les reviews approuvées
+          COUNT=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
+            --jq '[.[] | select(.state=="APPROVED")] | length')
+
+          echo "Nombre d'approbations : $COUNT"
+
+          if [ "$COUNT" = "0" ]; then
+            echo "❌ ERREUR : Cette PR a été mergée sans aucune review 'APPROVED'."
+            exit 1
+          else
+            echo "✅ OK : PR approuvée par au moins une personne."
+          fi
+
+      - name: Deploy
+        if: success()
+        run: |
+          echo "🚀 Conditions remplies : Merge par utilisateur autorisé ET Review validée."
+          echo "déployé"
