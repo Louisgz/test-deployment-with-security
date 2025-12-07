@@ -15,13 +15,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🔎 Vérification des approbations pour la PR #${{ github.event.pull_request.number }}..."
-          
+
           # Récupère le nombre de reviews avec l'état 'APPROVED'
           COUNT=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
             --jq '[.[] | select(.state=="APPROVED")] | length')
-          
+
           echo "Nombre d'approbations trouvées : $COUNT"
-          
+
           if [ "$COUNT" = "0" ]; then
             echo "❌ ECHEC : Cette Pull Request n'a pas encore été approuvée par un reviewer."
             echo "⚠️  Merci d'attendre une validation avant de merger."
@@ -30,4 +30,3 @@ jobs:
             echo "✅ SUCCÈS : La PR a été approuvée ($COUNT approbation(s))."
             exit 0
           fi
-
